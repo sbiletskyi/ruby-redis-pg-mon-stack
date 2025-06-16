@@ -1,0 +1,89 @@
+groups:
+  - name: rails_alerts
+    rules:
+      - alert: HighRequestLatency
+        expr: http_request_duration_seconds{quantile="0.9"} > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High request latency
+          description: "Request latency is above 500ms for 5 minutes"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: High error rate
+          description: "Error rate is above 1% for 5 minutes"
+
+  - name: postgres_alerts
+    rules:
+      - alert: HighPostgresConnections
+        expr: pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High number of PostgreSQL connections
+          description: "Number of PostgreSQL connections is above 80 for 5 minutes"
+
+      - alert: LowPostgresCacheHitRatio
+        expr: pg_stat_database_cache_hit_ratio < 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Low PostgreSQL cache hit ratio
+          description: "PostgreSQL cache hit ratio is below 80% for 5 minutes"
+
+  - name: redis_alerts
+    rules:
+      - alert: HighRedisMemoryUsage
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High Redis memory usage
+          description: "Redis memory usage is above 80% for 5 minutes"
+
+      - alert: HighRedisConnectedClients
+        expr: redis_connected_clients > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High number of Redis connected clients
+          description: "Number of Redis connected clients is above 100 for 5 minutes"
+
+  - name: system_alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High CPU usage
+          description: "CPU usage is above 80% for 5 minutes"
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High memory usage
+          description: "Memory usage is above 80% for 5 minutes"
+
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High disk usage
+          description: "Disk usage is above 80% for 5 minutes" 
