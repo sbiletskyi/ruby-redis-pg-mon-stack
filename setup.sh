@@ -101,7 +101,9 @@ docker compose up -d
 
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL to be ready..."
-sleep 30
+until docker compose exec db pg_isready -U postgres > /dev/null 2>&1; do
+  sleep 2
+done
 
 # Create and migrate the database
 docker compose exec web rails db:create db:migrate
