@@ -28,6 +28,7 @@ services:
 
   redis:
     image: redis:latest
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis_data:/data
     networks:
