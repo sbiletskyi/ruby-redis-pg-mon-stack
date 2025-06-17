@@ -11,7 +11,7 @@ groups:
           description: "Number of PostgreSQL connections is above 80 for 5 minutes"
 
       - alert: LowPostgresCacheHitRatio
-        expr: pg_stat_database_cache_hit_ratio < 0.8
+        expr: sum(rate(pg_stat_database_blks_hit[5m])) / (sum(rate(pg_stat_database_blks_hit[5m])) + sum(rate(pg_stat_database_blks_read[5m]))) < 0.8
         for: 5m
         labels:
           severity: warning
