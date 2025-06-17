@@ -1,4 +1,24 @@
 groups:
+  - name: rails_alerts
+    rules:
+      - alert: HighRequestLatency
+        expr: (rate(http_server_request_duration_seconds_sum[5m]) / rate(http_server_request_duration_seconds_count[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Request latency is above 500ms for 5 minutes"
+          description: "The average request latency has exceeded 500ms over the last 5 minutes"
+
+      - alert: HighErrorRate
+        expr: (sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error rate is above 1% for 5 minutes"
+          description: "The proportion of 5xx responses has exceeded 1% over the last 5 minutes."
+
   - name: postgres_alerts
     rules:
       - alert: HighPostgresConnections

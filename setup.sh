@@ -28,8 +28,7 @@ EOF
 cat > Gemfile << 'EOF'
 source "https://rubygems.org"
 
-#APM related gems
-gem "prometheus_exporter"
+# Prometheus Ruby Client [https://github.com/prometheus/client_ruby]
 gem "prometheus-client"
 # Use Redis for caching and session storage
 gem "redis"
@@ -94,7 +93,6 @@ group :test do
   gem "capybara"
   gem "selenium-webdriver"
 end
-
 EOF
 
 # Create a basic Rails application
@@ -113,26 +111,254 @@ done
 docker compose exec web rails db:create db:migrate
 
 # Create Hello World controller
-docker compose exec web bash -c 'cat > app/controllers/hello_controller.rb << "HELLO_EOF"
+cat > ./app/controllers/hello_controller.rb << 'HELLO_EOF'
 class HelloController < ApplicationController
   def index
     render plain: "Hello World!"
   end
 end
-HELLO_EOF'
+HELLO_EOF
 
-# Update routes for Hello World
-docker compose exec web bash -c 'cat > config/routes.rb << "ROUTES_EOF"
+# Update routes for Hello World application
+cat > ./config/routes.rb << 'ROUTES_EOF'
 Rails.application.routes.draw do
+  # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
+
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
   # Can be used by load balancers and uptime monitors to verify that the app is live.
   get "up" => "rails/health#show", as: :rails_health_check
 
   # Hello World routes
   root "hello#index"
-  get "hello", to: "hello#index"  
+  get "hello", to: "hello#index"
+
+  # Defines the root path route ("/")
+  # root "posts#index" 
 end
-ROUTES_EOF'
+ROUTES_EOF
+
+# APM middleware configuration
+# Create middleware folder
+mkdir -p ./lib/prometheus/middleware
+
+# Create Collector
+cat > ./lib/prometheus/middleware/collector.rb << 'COLLECTOR_EOF'
+# encoding: UTF-8
+
+require 'benchmark'
+require 'prometheus/client'
+
+module Prometheus
+  module Middleware
+    # Collector is a Rack middleware that provides a sample implementation of a
+    # HTTP tracer.
+    #
+    # By default metrics are registered on the global registry. Set the
+    # `:registry` option to use a custom registry.
+    #
+    # By default metrics all have the prefix "http_server". Set
+    # `:metrics_prefix` to something else if you like.
+    #
+    # The request counter metric is broken down by code, method and path.
+    # The request duration metric is broken down by method and path.
+    class Collector
+      attr_reader :app, :registry
+
+      def initialize(app, options = {})
+        @app = app
+        @registry = options[:registry] || Client.registry
+        @metrics_prefix = options[:metrics_prefix] || 'http_server'
+
+        init_request_metrics
+        init_exception_metrics
+      end
+
+      def call(env) # :nodoc:
+        trace(env) { @app.call(env) }
+      end
+
+      protected
+
+      def init_request_metrics
+        @requests = @registry.counter(
+          :"#{@metrics_prefix}_requests_total",
+          docstring:
+            'The total number of HTTP requests handled by the Rack application.',
+          labels: %i[code method path]
+        )
+        @durations = @registry.histogram(
+          :"#{@metrics_prefix}_request_duration_seconds",
+          docstring: 'The HTTP response duration of the Rack application.',
+          labels: %i[method path]
+        )
+      end
+
+      def init_exception_metrics
+        @exceptions = @registry.counter(
+          :"#{@metrics_prefix}_exceptions_total",
+          docstring: 'The total number of exceptions raised by the Rack application.',
+          labels: [:exception]
+        )
+      end
+
+      def trace(env)
+        response = nil
+        duration = Benchmark.realtime { response = yield }
+        record(env, response.first.to_s, duration)
+        return response
+      rescue => exception
+        @exceptions.increment(labels: { exception: exception.class.name })
+        raise
+      end
+
+      def record(env, code, duration)
+        path = generate_path(env)
+
+        counter_labels = {
+          code:   code,
+          method: env['REQUEST_METHOD'].downcase,
+          path:   path,
+        }
+
+        duration_labels = {
+          method: env['REQUEST_METHOD'].downcase,
+          path:   path,
+        }
+
+        @requests.increment(labels: counter_labels)
+        @durations.observe(duration, labels: duration_labels)
+      rescue
+        # TODO: log unexpected exception during request recording
+        nil
+      end
+
+      def generate_path(env)
+        full_path = [env['SCRIPT_NAME'], env['PATH_INFO']].join
+
+        strip_ids_from_path(full_path)
+      end
+
+      def strip_ids_from_path(path)
+        path
+          .gsub(%r{/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=/|$)}, '/:uuid\\1')
+          .gsub(%r{/\d+(?=/|$)}, '/:id\\1')
+      end
+    end
+  end
+end
+COLLECTOR_EOF
+
+#Create Exporter
+cat > ./lib/prometheus/middleware/exporter.rb << 'EXPORTER_EOF'
+# encoding: UTF-8
+
+require 'prometheus/client'
+require 'prometheus/client/formats/text'
+
+module Prometheus
+  module Middleware
+    # Exporter is a Rack middleware that provides a sample implementation of a
+    # Prometheus HTTP exposition endpoint.
+    #
+    # By default it will export the state of the global registry and expose it
+    # under `/metrics`. Use the `:registry` and `:path` options to change the
+    # defaults.
+    class Exporter
+      attr_reader :app, :registry, :path
+
+      FORMATS  = [Client::Formats::Text].freeze
+      FALLBACK = Client::Formats::Text
+
+      def initialize(app, options = {})
+        @app = app
+        @registry = options[:registry] || Client.registry
+        @path = options[:path] || '/metrics'
+        @port = options[:port]
+        @acceptable = build_dictionary(FORMATS, FALLBACK)
+      end
+
+      def call(env)
+        if metrics_port?(env['SERVER_PORT']) && env['PATH_INFO'] == @path
+          format = negotiate(env, @acceptable)
+          format ? respond_with(format) : not_acceptable(FORMATS)
+        else
+          @app.call(env)
+        end
+      end
+
+      private
+
+      def negotiate(env, formats)
+        parse(env.fetch('HTTP_ACCEPT', '*/*')).each do |content_type, _|
+          return formats[content_type] if formats.key?(content_type)
+        end
+
+        nil
+      end
+
+      def parse(header)
+        header.split(/\s*,\s*/).map do |type|
+          attributes = type.split(/\s*;\s*/)
+          quality = extract_quality(attributes)
+
+          [attributes.join('; '), quality]
+        end.sort_by(&:last).reverse
+      end
+
+      def extract_quality(attributes, default = 1.0)
+        quality = default
+
+        attributes.delete_if do |attr|
+          quality = attr.split('q=').last.to_f if attr.start_with?('q=')
+        end
+
+        quality
+      end
+
+      def respond_with(format)
+        [
+          200,
+          { 'content-type' => format::CONTENT_TYPE },
+          [format.marshal(@registry)],
+        ]
+      end
+
+      def not_acceptable(formats)
+        types = formats.map { |format| format::MEDIA_TYPE }
+
+        [
+          406,
+          { 'content-type' => 'text/plain' },
+          ["Supported media types: #{types.join(', ')}"],
+        ]
+      end
+
+      def build_dictionary(formats, fallback)
+        formats.each_with_object('*/*' => fallback) do |format, memo|
+          memo[format::CONTENT_TYPE] = format
+          memo[format::MEDIA_TYPE] = format
+        end
+      end
+
+      def metrics_port?(request_port)
+        @port.nil? || @port.to_s == request_port
+      end
+    end
+  end
+end
+EXPORTER_EOF
+
+# Enable Prometheus middlware
+cat  <<'CONFIG_EOF'>> config.ru
+
+require 'rack'
+require 'prometheus/middleware/collector'
+require 'prometheus/middleware/exporter'
+
+use Rack::Deflater
+use Prometheus::Middleware::Collector
+use Prometheus::Middleware::Exporter
+CONFIG_EOF
 
 # Enable Redis cache for dev environment
 # Path to your config file
@@ -157,6 +383,5 @@ docker compose restart web
 
 echo "Setup complete! The application is now running at:"
 echo "Rails app: http://localhost:3000"
-echo "Hello World endpoint: http://localhost:3000/hello"
 echo "Grafana: http://localhost:3001"
 echo "Prometheus: http://localhost:9090"

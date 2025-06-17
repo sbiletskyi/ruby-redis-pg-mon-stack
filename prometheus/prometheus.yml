@@ -28,13 +28,17 @@ scrape_configs:
     static_configs:
       - targets: ['postgres-exporter:9187'] # Postgres exporter
 
+  - job_name: 'rails'
+    static_configs:
+      - targets: ['web:3000'] # Rails APM
+
   - job_name: 'blackbox'
     metrics_path: /probe
     params:
       module: [http_hello_2xx]
     static_configs:
       - targets:
-          - http://web:3000/ # Target to probe
+          - http://web:3000/ # Target to probe (syntetic monitoring)
     relabel_configs:
       - source_labels: [__address__]
         target_label: __param_target
