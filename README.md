@@ -7,7 +7,7 @@ This project sets up a simple Rails application with PostgreSQL and Redis, along
 The application consists of the following components:
 - Rails application (Hello World)
 - PostgreSQL database
-- Redis cache
+- Redis cache (Enabled for Dev environment via the script)
 - Monitoring & APM stack:
   - Prometheus (metrics collection)
   - Grafana (visualization)
@@ -15,7 +15,7 @@ The application consists of the following components:
   - Redis Exporter (Redis metrics)
   - PostgreSQL Exporter (database metrics)
   - Blackbox Exporter (synthetic checks)
-  - Prometheus Ruby APM (via prometheus_exporter gem)
+  - Prometheus Ruby APM (via prometheus-client gem)
 
 ## Prerequisites
 
@@ -31,7 +31,6 @@ The application consists of the following components:
    ```
 3. Access the application:
    - Rails app: http://localhost:3000
-   - Hello World endpoint: http://localhost:3000/hello
    - Grafana: http://localhost:3001 (login: admin / admin)
    - Prometheus: http://localhost:9090
 
