@@ -1,24 +1,4 @@
 groups:
-  - name: rails_alerts
-    rules:
-      - alert: HighRequestLatency
-        expr: http_request_duration_seconds{quantile="0.9"} > 0.5
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: High request latency
-          description: "Request latency is above 500ms for 5 minutes"
-
-      - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: High error rate
-          description: "Error rate is above 1% for 5 minutes"
-
   - name: postgres_alerts
     rules:
       - alert: HighPostgresConnections
@@ -86,4 +66,24 @@ groups:
           severity: warning
         annotations:
           summary: High disk usage
-          description: "Disk usage is above 80% for 5 minutes" 
+          description: "Disk usage is above 80% for 5 minutes"
+
+  - name: webapp_synthetic
+    rules:
+      - alert: WebAppDown
+        expr: probe_success{instance="http://web:3000/"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Web app is down
+          description: "The web app is not returning HTTP 200 with 'Hello' in the response."
+
+      - alert: WebAppHighLatency
+        expr: probe_duration_seconds{instance="http://web:3000/"} > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Web app latency high
+          description: "The web app response time is above 1 second."
