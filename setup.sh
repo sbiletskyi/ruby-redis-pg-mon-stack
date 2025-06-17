@@ -28,6 +28,10 @@ EOF
 cat > Gemfile << 'EOF'
 source "https://rubygems.org"
 
+#APM related gems
+gem "prometheus_exporter"
+gem "prometheus-client"
+# Use Redis for caching and session storage
 gem "redis"
 # Bundle edge Rails instead: gem "rails", github: "rails/rails", branch: "main"
 gem "rails", "~> 8.0.2"
@@ -120,23 +124,17 @@ HELLO_EOF'
 # Update routes for Hello World
 docker compose exec web bash -c 'cat > config/routes.rb << "ROUTES_EOF"
 Rails.application.routes.draw do
-  # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
-
   # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
   # Can be used by load balancers and uptime monitors to verify that the app is live.
   get "up" => "rails/health#show", as: :rails_health_check
 
   # Hello World routes
   root "hello#index"
-  get "hello", to: "hello#index"
-
-  # Defines the root path route ("/")
-  # root "posts#index"
+  get "hello", to: "hello#index"  
 end
 ROUTES_EOF'
 
 # Enable Redis cache for dev environment
-
 # Path to your config file
 DEV_CONFIG="./config/environments/development.rb"
 
